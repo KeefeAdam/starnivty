@@ -49,7 +49,10 @@ export default async function handler(req, res) {
       end_time: `${String(endHour).padStart(2, "0")}:00:00`,
       customer_name: customerName.trim(), order_number: orderNumber, status: "pending",
     });
-    if (bookingError) throw bookingError;
+    if (bookingError) {
+      await supabase.from("orders").delete().eq("id", order.id).eq("payment_status", "pending");
+      throw bookingError;
+    }
 
     const timestamp = Date.now().toString();
     const invoiceResponse = await fetch(`${baseUrl.replace(/\/$/, "")}/api/merchant/createInvoice`, {
@@ -76,6 +79,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ orderNumber, paymentUrl: invoice.paymentUrl });
   } catch (error) {
     console.error("Room checkout error:", error.message);
-    return res.status(500).json({ error: "Checkout booking gagal diproses." });
+    if (error.code === "PGRST204" || error.code === "42703" || /order_number|room_bookings/i.test(error.message || "")) {
+      return res.status(500).json({ error: "Database booking belum diperbarui. Jalankan supabase/room-bookings.sql di Supabase SQL Editor, lalu coba lagi." });
+    }
+    return res.status(500).json({ error: "Checkout booking gagal diproses. Periksa konfigurasi server." });
   }
 }
