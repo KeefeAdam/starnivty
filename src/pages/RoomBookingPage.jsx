@@ -36,7 +36,8 @@ export default function RoomBookingPage({ onNavigate }) {
   const [error, setError] = useState("");
   const [selectedRoom, setSelectedRoom] = useState(rooms[0].id);
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
   const today = useMemo(getLocalDate, []);
   const visibleRooms = roomFilter === "all" ? rooms : rooms.filter((room) => room.id === roomFilter);
 
@@ -79,11 +80,6 @@ export default function RoomBookingPage({ onNavigate }) {
     return endHour;
   }
 
-  function submitBooking(event) {
-    event.preventDefault();
-    setSubmitted(true);
-  }
-
   return <main className="shop booking-page">
     <button className="back-link" type="button" onClick={() => onNavigate("/")}>← Pilih layanan lain</button>
     <header className="shop-header booking-header">
@@ -92,7 +88,7 @@ export default function RoomBookingPage({ onNavigate }) {
     <section className="schedule-layout">
       <aside className="schedule-filters">
         <h2>Filter jadwal</h2>
-        <label>Pilih tanggal<input type="date" min={today} value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setSubmitted(false); }} /></label>
+        <label>Pilih tanggal<input type="date" min={today} value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setSelectedSlot(null); }} /></label>
         <label>Filter ruangan<select value={roomFilter} onChange={(event) => setRoomFilter(event.target.value)}>
           <option value="all">Semua ruangan</option>
           {rooms.map((room) => <option value={room.id} key={room.id}>{room.name}</option>)}
@@ -110,7 +106,7 @@ export default function RoomBookingPage({ onNavigate }) {
             <div className="schedule-cell schedule-time">{String(hour).padStart(2, "0")}:00</div>
             {visibleRooms.map((room) => {
               const booking = getBooking(room.id, hour);
-              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => { setSelectedRoom(room.id); setSubmitted(false); setSelectedSlot({ room, hour, endHour: hour + 1 }); }}>
+              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => { setSelectedRoom(room.id); setCheckoutError(""); setSelectedSlot({ room, hour, endHour: hour + 1 }); }}>
                 {booking && <><strong>{booking.customer_name || "Sudah terbooking"}</strong><small>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</small></>}
                 {!booking && <span>{selectedRoom === room.id ? "Pilih" : "Tersedia"}</span>}
               </button>;
@@ -123,7 +119,33 @@ export default function RoomBookingPage({ onNavigate }) {
     {selectedSlot && <div className="booking-modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) setSelectedSlot(null);
     }}>
-      <form className="booking-modal" onSubmit={submitBooking}>
+      <form className="booking-modal" onSubmit={async (event) => {
+        event.preventDefault();
+        setCheckoutLoading(true);
+        setCheckoutError("");
+        const formData = new FormData(event.currentTarget);
+        try {
+          const response = await fetch("/api/room-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customerName: formData.get("customerName"),
+              customerEmail: formData.get("customerEmail"),
+              roomId: selectedSlot.room.id,
+              bookingDate,
+              startHour: selectedSlot.hour,
+              endHour: selectedSlot.endHour,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Checkout booking gagal.");
+          if (!result.paymentUrl) throw new Error("URL pembayaran tidak diterima dari Duitku.");
+          window.location.assign(result.paymentUrl);
+        } catch (requestError) {
+          setCheckoutError(requestError.message || "Checkout booking gagal.");
+          setCheckoutLoading(false);
+        }
+      }}>
         <button className="modal-close" type="button" aria-label="Tutup form booking" onClick={() => setSelectedSlot(null)}>×</button>
         <p className="eyebrow">BOOKING ROOM</p>
         <h2>{selectedSlot.room.name}</h2>
@@ -133,10 +155,10 @@ export default function RoomBookingPage({ onNavigate }) {
             .map((hour) => <option value={hour} key={hour}>{String(hour).padStart(2, "0")}:00</option>)}
         </select></label>
         <div className="modal-booking-summary"><span>Tanggal</span><strong>{formatDate(bookingDate)}</strong><span>Ruangan</span><strong>{selectedSlot.room.name}</strong><span>Waktu</span><strong>{String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.endHour).padStart(2, "0")}:00</strong><span>Durasi</span><strong>{selectedSlot.endHour - selectedSlot.hour} jam</strong><span>Harga per jam</span><strong>{rupiah(selectedSlot.room.hourlyRate)}</strong><span>Total</span><strong className="modal-total">{rupiah((selectedSlot.endHour - selectedSlot.hour) * selectedSlot.room.hourlyRate)}</strong></div>
-        <label>Nama lengkap<input required autoFocus maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
-        <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
-        <button type="submit" className="checkout-button">Konfirmasi booking</button>
-        {submitted && <p className="success" role="status">Permintaan booking diterima. Tim kami akan menghubungimu untuk konfirmasi.</p>}
+        <label>Nama lengkap<input name="customerName" required autoFocus maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
+        <label>Email<input name="customerEmail" required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
+        <button type="submit" className="checkout-button" disabled={checkoutLoading}>{checkoutLoading ? "Menyiapkan pembayaran…" : `Bayar ${rupiah((selectedSlot.endHour - selectedSlot.hour) * selectedSlot.room.hourlyRate)}`}</button>
+        {checkoutError && <p className="error" role="alert">{checkoutError}</p>}
       </form>
     </div>}
   </main>;

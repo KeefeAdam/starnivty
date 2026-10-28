@@ -35,7 +35,12 @@ export default async function handler(req, res) {
         (order.duitku_reference && order.duitku_reference !== reference)) {
       return res.status(400).send("Order mismatch");
     }
-    if (order.payment_status === "paid") return res.status(200).send("OK");
+    if (order.payment_status === "paid") {
+      const { error: confirmedBookingError } = await supabase.from("room_bookings")
+        .update({ status: "confirmed" }).eq("order_number", merchantOrderId).eq("status", "pending");
+      if (confirmedBookingError) throw confirmedBookingError;
+      return res.status(200).send("OK");
+    }
 
     const nextStatus = resultCode === "00" ? "paid" : "failed";
     const update = {
@@ -54,6 +59,14 @@ export default async function handler(req, res) {
         .select("payment_status").eq("id", order.id).single();
       if (latestError) throw latestError;
       if (latest.payment_status !== nextStatus && latest.payment_status !== "paid") return res.status(409).send("Order status conflict");
+    }
+    if (nextStatus === "paid") {
+      const { error: bookingError } = await supabase.from("room_bookings")
+        .update({ status: "confirmed" }).eq("order_number", merchantOrderId).eq("status", "pending");
+      if (bookingError) throw bookingError;
+    } else {
+      await supabase.from("room_bookings")
+        .update({ status: "cancelled" }).eq("order_number", merchantOrderId).eq("status", "pending");
     }
     return res.status(200).send("OK");
   } catch (error) {
