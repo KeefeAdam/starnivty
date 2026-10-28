@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 const rooms = [
-  { id: "meeting", name: "Meeting Room", shortName: "MEETING ROOM" },
-  { id: "event", name: "Event Room", shortName: "EVENT ROOM" },
+  { id: "meeting", name: "Meeting Room", shortName: "MEETING ROOM", hourlyRate: 50000 },
+  { id: "event", name: "Event Room", shortName: "EVENT ROOM", hourlyRate: 100000 },
 ];
 const hours = Array.from({ length: 13 }, (_, index) => index + 8);
 
@@ -20,6 +20,12 @@ function formatDate(date) {
 
 function formatTime(value) {
   return value?.slice(0, 5) ?? "";
+}
+
+function rupiah(value) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency", currency: "IDR", maximumFractionDigits: 0,
+  }).format(value);
 }
 
 export default function RoomBookingPage({ onNavigate }) {
@@ -67,6 +73,12 @@ export default function RoomBookingPage({ onNavigate }) {
     });
   }
 
+  function getMaxEndHour(roomId, startHour) {
+    let endHour = startHour + 1;
+    while (endHour <= 20 && !getBooking(roomId, endHour)) endHour += 1;
+    return endHour;
+  }
+
   function submitBooking(event) {
     event.preventDefault();
     setSubmitted(true);
@@ -98,7 +110,7 @@ export default function RoomBookingPage({ onNavigate }) {
             <div className="schedule-cell schedule-time">{String(hour).padStart(2, "0")}:00</div>
             {visibleRooms.map((room) => {
               const booking = getBooking(room.id, hour);
-              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => { setSelectedRoom(room.id); setSubmitted(false); setSelectedSlot({ room, hour }); }}>
+              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => { setSelectedRoom(room.id); setSubmitted(false); setSelectedSlot({ room, hour, endHour: hour + 1 }); }}>
                 {booking && <><strong>{booking.customer_name || "Sudah terbooking"}</strong><small>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</small></>}
                 {!booking && <span>{selectedRoom === room.id ? "Pilih" : "Tersedia"}</span>}
               </button>;
@@ -115,8 +127,12 @@ export default function RoomBookingPage({ onNavigate }) {
         <button className="modal-close" type="button" aria-label="Tutup form booking" onClick={() => setSelectedSlot(null)}>×</button>
         <p className="eyebrow">BOOKING ROOM</p>
         <h2>{selectedSlot.room.name}</h2>
-        <p className="muted">{formatDate(bookingDate)} · {String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.hour + 1).padStart(2, "0")}:00</p>
-        <div className="modal-booking-summary"><span>Tanggal</span><strong>{formatDate(bookingDate)}</strong><span>Ruangan</span><strong>{selectedSlot.room.name}</strong><span>Waktu</span><strong>{String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.hour + 1).padStart(2, "0")}:00</strong></div>
+        <p className="muted">Atur durasi booking sesuai kebutuhanmu.</p>
+        <label>Jam selesai<select value={selectedSlot.endHour} onChange={(event) => setSelectedSlot({ ...selectedSlot, endHour: Number(event.target.value) })}>
+          {Array.from({ length: getMaxEndHour(selectedSlot.room.id, selectedSlot.hour) - selectedSlot.hour }, (_, index) => selectedSlot.hour + index + 1)
+            .map((hour) => <option value={hour} key={hour}>{String(hour).padStart(2, "0")}:00</option>)}
+        </select></label>
+        <div className="modal-booking-summary"><span>Tanggal</span><strong>{formatDate(bookingDate)}</strong><span>Ruangan</span><strong>{selectedSlot.room.name}</strong><span>Waktu</span><strong>{String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.endHour).padStart(2, "0")}:00</strong><span>Durasi</span><strong>{selectedSlot.endHour - selectedSlot.hour} jam</strong><span>Harga per jam</span><strong>{rupiah(selectedSlot.room.hourlyRate)}</strong><span>Total</span><strong className="modal-total">{rupiah((selectedSlot.endHour - selectedSlot.hour) * selectedSlot.room.hourlyRate)}</strong></div>
         <label>Nama lengkap<input required autoFocus maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
         <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
         <button type="submit" className="checkout-button">Konfirmasi booking</button>
