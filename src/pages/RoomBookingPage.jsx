@@ -1,95 +1,119 @@
 import { useEffect, useMemo, useState } from "react";
 
 const rooms = [
-  { id: "meeting", name: "Meeting Room", description: "Ruang nyaman untuk meeting dan diskusi tim.", capacity: "hingga 8 orang" },
-  { id: "event", name: "Event Room", description: "Ruangan luas untuk workshop atau acara kecil.", capacity: "hingga 30 orang" },
+  { id: "meeting", name: "Meeting Room", shortName: "MEETING ROOM" },
+  { id: "event", name: "Event Room", shortName: "EVENT ROOM" },
 ];
+const hours = Array.from({ length: 13 }, (_, index) => index + 8);
+
+function getLocalDate() {
+  const date = new Date();
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function formatDate(date) {
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+function formatTime(value) {
+  return value?.slice(0, 5) ?? "";
+}
 
 export default function RoomBookingPage({ onNavigate }) {
+  const [bookingDate, setBookingDate] = useState(getLocalDate);
+  const [roomFilter, setRoomFilter] = useState("all");
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [selectedRoom, setSelectedRoom] = useState(rooms[0].id);
-  const [bookingDate, setBookingDate] = useState("");
-  const [bookedRoomIds, setBookedRoomIds] = useState([]);
-  const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [availabilityError, setAvailabilityError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(getLocalDate, []);
+  const visibleRooms = roomFilter === "all" ? rooms : rooms.filter((room) => room.id === roomFilter);
 
   useEffect(() => {
-    if (!bookingDate) {
-      setBookedRoomIds([]);
-      setAvailabilityError("");
-      return;
-    }
-
     const controller = new AbortController();
-    async function checkAvailability() {
-      setAvailabilityLoading(true);
-      setAvailabilityError("");
+    async function loadSchedule() {
+      setLoading(true);
+      setError("");
       try {
         const response = await fetch(`/api/room-availability?date=${encodeURIComponent(bookingDate)}`, {
-          signal: controller.signal,
-          cache: "no-store",
+          signal: controller.signal, cache: "no-store",
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Gagal memeriksa ketersediaan room.");
-        setBookedRoomIds(result.bookedRoomIds);
-        setSelectedRoom((current) => result.bookedRoomIds.includes(current)
-          ? rooms.find((room) => !result.bookedRoomIds.includes(room.id))?.id ?? current
-          : current);
-      } catch (error) {
-        if (error.name !== "AbortError") {
-          setBookedRoomIds([]);
-          setAvailabilityError(error.message || "Gagal memeriksa ketersediaan room.");
+        if (!response.ok) throw new Error(result.error || "Gagal memuat jadwal booking.");
+        setBookings(result.bookings ?? []);
+      } catch (requestError) {
+        if (requestError.name !== "AbortError") {
+          setBookings([]);
+          setError(requestError.message || "Gagal memuat jadwal booking.");
         }
       } finally {
-        if (!controller.signal.aborted) setAvailabilityLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
-    checkAvailability();
+    loadSchedule();
     return () => controller.abort();
   }, [bookingDate]);
 
+  function getBooking(roomId, hour) {
+    return bookings.find((booking) => {
+      const start = Number(booking.start_time.slice(0, 2));
+      const end = Number(booking.end_time.slice(0, 2));
+      return booking.room_id === roomId && hour >= start && hour < end;
+    });
+  }
+
   function submitBooking(event) {
     event.preventDefault();
-    if (bookedRoomIds.includes(selectedRoom)) return;
     setSubmitted(true);
   }
 
-  function changeDate(event) {
-    setBookingDate(event.target.value);
-    setSubmitted(false);
-  }
-
-  return <main className="shop">
+  return <main className="shop booking-page">
     <button className="back-link" type="button" onClick={() => onNavigate("/")}>← Pilih layanan lain</button>
-    <header className="shop-header">
-      <div><p className="eyebrow">ROOM BOOKING</p><h1>Temukan ruang yang pas untuk agendamu.</h1><p className="muted">Pilih tanggal untuk melihat room yang masih tersedia.</p></div>
+    <header className="shop-header booking-header">
+      <div><p className="eyebrow">ROOM BOOKING</p><h1>Pilih jadwal ruangan yang tersedia.</h1><p className="muted">Gunakan filter di kiri untuk melihat jadwal pada tanggal tertentu.</p></div>
     </header>
-    <section className="booking-layout">
-      <div><h2>Cek ketersediaan</h2>
-        <label className="date-filter">Pilih tanggal<input required type="date" min={today} value={bookingDate} onChange={changeDate} /></label>
-        {!bookingDate && <p className="muted availability-message">Pilih tanggal untuk melihat room yang tersedia.</p>}
-        {availabilityLoading && <p className="muted availability-message">Memeriksa ketersediaan room…</p>}
-        {availabilityError && <p className="error availability-message" role="alert">{availabilityError}</p>}
-        {bookingDate && !availabilityLoading && !availabilityError && <p className="availability-message">
-          {bookedRoomIds.length === rooms.length ? "Semua room sudah terbooking pada tanggal ini." : `${rooms.length - bookedRoomIds.length} room tersedia pada tanggal ini.`}
-        </p>}
-        <div className="room-list">{rooms.map((room) => {
-          const isBooked = bookedRoomIds.includes(room.id);
-          return <button key={room.id} type="button" disabled={isBooked || !bookingDate} className={`room-card ${selectedRoom === room.id ? "selected" : ""} ${isBooked ? "booked" : ""}`} onClick={() => setSelectedRoom(room.id)}>
-            <span className="room-icon">▦</span><span><strong>{room.name} {isBooked && <em>Sudah terbooking</em>}</strong><small>{room.description}</small><small>{room.capacity}</small></span>
-          </button>;
-        })}</div>
+    <section className="schedule-layout">
+      <aside className="schedule-filters">
+        <h2>Filter jadwal</h2>
+        <label>Pilih tanggal<input type="date" min={today} value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setSubmitted(false); }} /></label>
+        <label>Filter ruangan<select value={roomFilter} onChange={(event) => setRoomFilter(event.target.value)}>
+          <option value="all">Semua ruangan</option>
+          {rooms.map((room) => <option value={room.id} key={room.id}>{room.name}</option>)}
+        </select></label>
+        <div className="filter-divider" />
+        <p className="muted">Klik ruangan yang masih kosong pada jadwal di kanan untuk memilihnya.</p>
+        <form className="booking-form compact-booking-form" onSubmit={submitBooking}>
+          <h2>Booking sekarang</h2>
+          <label>Nama lengkap<input required maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
+          <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
+          <label>Waktu mulai<input required type="time" /></label>
+          <button type="submit" className="checkout-button">Ajukan booking</button>
+          {submitted && <p className="success" role="status">Permintaan booking diterima.</p>}
+        </form>
+      </aside>
+      <div className="schedule-panel">
+        <div className="schedule-title"><div><p className="eyebrow">JADWAL BOOKING AKTIF</p><h2>⏰ {formatDate(bookingDate)}</h2></div><span className="schedule-status">{loading ? "Memuat…" : `Diperbarui untuk ${bookingDate}`}</span></div>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="schedule-scroll"><div className="schedule-grid" style={{ "--room-count": visibleRooms.length }}>
+          <div className="schedule-cell schedule-head">WAKTU</div>
+          {visibleRooms.map((room) => <div className="schedule-cell schedule-head room-head" key={room.id}>{room.shortName}<small>{room.name}</small></div>)}
+          {hours.map((hour) => <div className="schedule-row" key={hour}>
+            <div className="schedule-cell schedule-time">{String(hour).padStart(2, "0")}:00</div>
+            {visibleRooms.map((room) => {
+              const booking = getBooking(room.id, hour);
+              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => setSelectedRoom(room.id)}>
+                {booking && <><strong>{booking.customer_name || "Sudah terbooking"}</strong><small>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</small></>}
+                {!booking && <span>{selectedRoom === room.id ? "Pilih" : "Tersedia"}</span>}
+              </button>;
+            })}
+          </div>)}
+        </div></div>
+        {!bookings.length && !loading && !error && <p className="availability-message">Belum ada booking pada tanggal ini. Semua room tersedia.</p>}
       </div>
-      <form className="booking-form" onSubmit={submitBooking}>
-        <h2>Detail booking</h2>
-        <label>Nama lengkap<input required maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
-        <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
-        <label>Tanggal<input required type="date" min={today} value={bookingDate} onChange={changeDate} /></label>
-        <label>Waktu<input required type="time" /></label>
-        <button type="submit" className="checkout-button" disabled={!bookingDate || availabilityLoading || Boolean(availabilityError) || bookedRoomIds.includes(selectedRoom)}>Ajukan booking</button>
-        {submitted && <p className="success" role="status">Permintaan booking diterima. Tim kami akan menghubungimu untuk konfirmasi.</p>}
-      </form>
     </section>
   </main>;
 }

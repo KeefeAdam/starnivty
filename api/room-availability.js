@@ -13,14 +13,20 @@ export default async function handler(req, res) {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("room_bookings")
-      .select("room_id")
+      .select("room_id, start_time, end_time, customer_name")
       .eq("booking_date", date)
       .neq("status", "cancelled");
     if (error) throw error;
 
-    const bookedRoomIds = [...new Set((data ?? []).map((booking) => booking.room_id))];
+    const bookings = (data ?? []).map((booking) => ({
+      room_id: booking.room_id,
+      start_time: booking.start_time || "08:00:00",
+      end_time: booking.end_time || "20:00:00",
+      customer_name: booking.customer_name,
+    }));
+    const bookedRoomIds = [...new Set(bookings.map((booking) => booking.room_id))];
     res.setHeader("Cache-Control", "no-store, max-age=0");
-    return res.status(200).json({ date, bookedRoomIds });
+    return res.status(200).json({ date, bookedRoomIds, bookings });
   } catch (error) {
     console.error("Room availability error:", error.message);
     return res.status(500).json({ error: "Gagal memeriksa ketersediaan room. Pastikan tabel room_bookings sudah tersedia." });
