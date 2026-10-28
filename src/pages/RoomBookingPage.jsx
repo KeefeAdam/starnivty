@@ -29,6 +29,7 @@ export default function RoomBookingPage({ onNavigate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedRoom, setSelectedRoom] = useState(rooms[0].id);
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const today = useMemo(getLocalDate, []);
   const visibleRooms = roomFilter === "all" ? rooms : rooms.filter((room) => room.id === roomFilter);
@@ -86,14 +87,6 @@ export default function RoomBookingPage({ onNavigate }) {
         </select></label>
         <div className="filter-divider" />
         <p className="muted">Klik ruangan yang masih kosong pada jadwal di kanan untuk memilihnya.</p>
-        <form className="booking-form compact-booking-form" onSubmit={submitBooking}>
-          <h2>Booking sekarang</h2>
-          <label>Nama lengkap<input required maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
-          <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
-          <label>Waktu mulai<input required type="time" /></label>
-          <button type="submit" className="checkout-button">Ajukan booking</button>
-          {submitted && <p className="success" role="status">Permintaan booking diterima.</p>}
-        </form>
       </aside>
       <div className="schedule-panel">
         <div className="schedule-title"><div><p className="eyebrow">JADWAL BOOKING AKTIF</p><h2>⏰ {formatDate(bookingDate)}</h2></div><span className="schedule-status">{loading ? "Memuat…" : `Diperbarui untuk ${bookingDate}`}</span></div>
@@ -105,7 +98,7 @@ export default function RoomBookingPage({ onNavigate }) {
             <div className="schedule-cell schedule-time">{String(hour).padStart(2, "0")}:00</div>
             {visibleRooms.map((room) => {
               const booking = getBooking(room.id, hour);
-              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => setSelectedRoom(room.id)}>
+              return <button type="button" key={room.id} className={`schedule-cell schedule-slot ${booking ? "occupied" : "available"}`} disabled={Boolean(booking)} onClick={() => { setSelectedRoom(room.id); setSubmitted(false); setSelectedSlot({ room, hour }); }}>
                 {booking && <><strong>{booking.customer_name || "Sudah terbooking"}</strong><small>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</small></>}
                 {!booking && <span>{selectedRoom === room.id ? "Pilih" : "Tersedia"}</span>}
               </button>;
@@ -115,5 +108,20 @@ export default function RoomBookingPage({ onNavigate }) {
         {!bookings.length && !loading && !error && <p className="availability-message">Belum ada booking pada tanggal ini. Semua room tersedia.</p>}
       </div>
     </section>
+    {selectedSlot && <div className="booking-modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) setSelectedSlot(null);
+    }}>
+      <form className="booking-modal" onSubmit={submitBooking}>
+        <button className="modal-close" type="button" aria-label="Tutup form booking" onClick={() => setSelectedSlot(null)}>×</button>
+        <p className="eyebrow">BOOKING ROOM</p>
+        <h2>{selectedSlot.room.name}</h2>
+        <p className="muted">{formatDate(bookingDate)} · {String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.hour + 1).padStart(2, "0")}:00</p>
+        <div className="modal-booking-summary"><span>Tanggal</span><strong>{formatDate(bookingDate)}</strong><span>Ruangan</span><strong>{selectedSlot.room.name}</strong><span>Waktu</span><strong>{String(selectedSlot.hour).padStart(2, "0")}:00 - {String(selectedSlot.hour + 1).padStart(2, "0")}:00</strong></div>
+        <label>Nama lengkap<input required autoFocus maxLength={100} autoComplete="name" placeholder="Nama pelanggan" /></label>
+        <label>Email<input required type="email" maxLength={254} autoComplete="email" placeholder="nama@email.com" /></label>
+        <button type="submit" className="checkout-button">Konfirmasi booking</button>
+        {submitted && <p className="success" role="status">Permintaan booking diterima. Tim kami akan menghubungimu untuk konfirmasi.</p>}
+      </form>
+    </div>}
   </main>;
 }
